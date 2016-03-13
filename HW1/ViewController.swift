@@ -19,15 +19,26 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
     var flippedImages: [UIImage] = []
     var mtimer : NSTimer?
     var score : UIView!
+
+    var checkWinLoopsCounter = 0
     
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        initGame()
+    }
+
+    func initGame() {
         timeCounter.text = "00:00"
         count = 0
-        mtimer = NSTimer.scheduledTimerWithTimeInterval(1.0, target: self, selector: Selector("update"), userInfo: nil, repeats: true)
+        scheduleTimer()
         let bg = UIImage(named: "bg.jpg")
         view.backgroundColor = UIColor(patternImage: bg!)
         
+        initImages()
+    }
+
+    func initImages() {
         for var i=1;i<=8;i++ {
             for var j=0;j<2;j++ {
                 let imageSource = UIImage(named: "pic\(i).jpg")
@@ -35,8 +46,8 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
             }
         }
     }
-    
-    func update() {
+
+    func updateTimeLabel() {
         count++
         let minutes = count / 60
         let minutesS = minutes/10>0 ? String(minutes) : "0\(minutes)"
@@ -78,12 +89,12 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
     }
     
     func collectionView(collectionView: UICollectionView, cellForItemAtIndexPath indexPath: NSIndexPath) -> UICollectionViewCell {
-        print("cell \(indexPath.row), \(indexPath.section)")
+        print("Dequeuing cell \(indexPath.row), \(indexPath.section)")
         let cell = collectionView.dequeueReusableCellWithReuseIdentifier("cellIdentifier", forIndexPath: indexPath) as! CollectionViewCell
         
         let random = arc4random_uniform(UInt32(images.count))
         let imageSource = images[Int(random)]
-        cell.SetImage(imageSource)
+        cell.image = imageSource
         images.removeAtIndex(Int(random))
         
         return cell
@@ -93,8 +104,8 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
         
         let cell = collectionView.cellForItemAtIndexPath(indexPath) as! CollectionViewCell
         
-        if(cell.CanClick() && flipCount<2) {
-            cell.FlipCard()
+        if(cell.isClickable() && flipCount<2) {
+            cell.flipCard()
             flippedImages.append(cell.imageView.image!)
             flipCount++
         }
@@ -102,53 +113,55 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
         if(flipCount==2) {
         let timer = NSTimer.scheduledTimerWithTimeInterval(1.0, target: self, selector: "delayedAction:", userInfo: collectionView, repeats: false)
             NSRunLoop.currentRunLoop().addTimer(timer, forMode: NSRunLoopCommonModes)
+
             flipCount = 0
-            for var i=0;i<collectionView.numberOfSections();i++ {
-                for var j=0;j<collectionView.numberOfItemsInSection(i);j++ {
-                    let cell = collectionView.cellForItemAtIndexPath(NSIndexPath(forItem: j, inSection: i)) as! CollectionViewCell
-                    cell.canClick = false
-                }
-            }
+            collectionView.userInteractionEnabled = false
         }
         
         print("Selected cell \(indexPath.row), \(indexPath.section)")
     }
     
     func delayedAction(timer: NSTimer!) {
-        let collectionView = timer.userInfo as! UICollectionView
-        
+        checkWinLoopsCounter = 0
+
+        // Using a safe and easy Swifty way to pull out the collection view
+        if let collectionView = timer.userInfo as? UICollectionView { // Very nice to add this a a userInfo of the timer
+            collectionView.userInteractionEnabled = true
             for var i=0;i<collectionView.numberOfSections();i++ {
                 for var j=0;j<collectionView.numberOfItemsInSection(i);j++ {
                     let cell = collectionView.cellForItemAtIndexPath(NSIndexPath(forItem: j, inSection: i)) as! CollectionViewCell
-                    cell.canClick = true
                     if(cell.isFlipped) {
                         if(flippedImages[0].isEqual(flippedImages[1])) {
-                            cell.HideCard()
-                            checkWin(collectionView)
+                            cell.hidden = true
+                            checkWin(collectionView) // Can you see the crazy nested loop here? ( numberOfSections() * numberOfItemsInSection(i) ) ^ 2
                         }
-                        else {
-                            cell.FlipCard()
-                        }
+                        cell.flipCard()
                     }
                 }
             }
-        flippedImages.removeAll()
+            flippedImages.removeAll()
+        }
+
+        print("checkWin nested loop counter = \(checkWinLoopsCounter)")
     }
     
     func checkWin(collectionView : UICollectionView) {
+
         var win = true
         for var i=0;i<collectionView.numberOfSections();i++ {
             for var j=0;j<collectionView.numberOfItemsInSection(i);j++ {
                 let cell = collectionView.cellForItemAtIndexPath(NSIndexPath(forItem: j, inSection: i)) as! CollectionViewCell
-                if(cell.isCardHidden == false) {
+                // Runs too many times
+                checkWinLoopsCounter++
+                if(cell.hidden == false) {
                     win = false
                     break
                 }
             }
         }
-        
+
         if(win) {
-            mtimer!.invalidate()
+            mtimer?.invalidate()
             mtimer = nil
             popup()
             view.addSubview(score)
@@ -213,7 +226,10 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
     }
     
     func pressed(sender: UIButton!) {
-        self.viewDidLoad()
+        // Should be called by the OS, not by the controller.
+//        self.viewDidLoad() - Calling a system event isn't recommended at all, in that case it doesn't harm but be careful with that
+        initGame()
+
         // Reset cells
         for var i=0;i<mCollectionView.numberOfSections();i++ {
             for var j=0;j<mCollectionView.numberOfItemsInSection(i);j++ {
@@ -225,26 +241,19 @@ class ViewController: UIViewController, UICollectionViewDelegate, UICollectionVi
     }
     
     @IBAction func PausePressed(sender: UIButton) {
-        if(sender.titleLabel!.text == "Pause") {
+        if(sender.titleLabel!.text == "Pause") { // It's cool to use the sender, but it's a bad practice to use its text for logic conditions
             mtimer?.invalidate()
-            for var i=0;i<mCollectionView.numberOfSections();i++ {
-                for var j=0;j<mCollectionView.numberOfItemsInSection(i);j++ {
-                    let cell = mCollectionView.cellForItemAtIndexPath(NSIndexPath(forItem: j, inSection: i)) as! CollectionViewCell
-                    cell.canClick = false
-                }
-            }
+            mCollectionView.userInteractionEnabled = false
             sender.setTitle("Resume", forState: UIControlState.Normal)
         }
         else {
-            mtimer = NSTimer.scheduledTimerWithTimeInterval(1.0, target: self, selector: Selector("update"), userInfo: nil, repeats: true)
-            for var i=0;i<mCollectionView.numberOfSections();i++ {
-                for var j=0;j<mCollectionView.numberOfItemsInSection(i);j++ {
-                    let cell = mCollectionView.cellForItemAtIndexPath(NSIndexPath(forItem: j, inSection: i)) as! CollectionViewCell
-                    cell.canClick = true
-                }
-            }
+            scheduleTimer()
+            mCollectionView.userInteractionEnabled = true
             sender.setTitle("Pause", forState: UIControlState.Normal)
         }
     }
-    
+
+    private func scheduleTimer() {
+        mtimer = NSTimer.scheduledTimerWithTimeInterval(1.0, target: self, selector: Selector("updateTimeLabel"), userInfo: nil, repeats: true)
+    }
 }
